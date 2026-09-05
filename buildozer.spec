@@ -1,0 +1,37 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # यहाँ ubuntu-latest की जगह ubuntu-22.04 करना ज़रूरी है ताकि क्रैश न हो
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git openjdk-17-jdk ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev libssl-dev libffi-dev autoconf libtool pkg-config
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.33 virtualenv
+
+      - name: Build APK with Buildozer
+        run: |
+          yes | buildozer -v android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Election-App-APK
+          path: bin/*.apk
