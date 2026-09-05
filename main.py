@@ -8,7 +8,7 @@ import unicodedata
 from datetime import datetime
 from pypdf import PdfReader
 from openpyxl import Workbook
-from PIL import Image as PILImage
+from fpdf import FPDF
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -110,20 +110,17 @@ class VoterCard(BoxLayout):
             self.bg = RoundedRectangle(pos=self.pos, size=self.size, radius=[8])
         self.bind(pos=self.upd, size=self.update_bg)
 
-        # Name & EPIC
         r1 = BoxLayout(size_hint_y=None, height=28)
         dm = "[color=ff0000](विलोपित)[/color] " if v['is_deleted'] else ""
         r1.add_widget(Label(text=f"[b]#{v['sr_no']}[/b] {dm}{v['name']}", markup=True, color=(0,0,0,1), size_hint_x=0.6, halign='left'))
         r1.add_widget(Label(text=v['epic'], font_size='12sp', color=(0.1,0.3,0.7,1), size_hint_x=0.4))
         self.add_widget(r1)
 
-        # Details
         r2 = BoxLayout(size_hint_y=None, height=24)
         r2.add_widget(Label(text=f"{v['rel_type'][:4]}: {v['rel_name']}", font_size='11sp', color=(0.3,0.3,0.3,1), size_hint_x=0.5))
         r2.add_widget(Label(text=f"म.सं: {v['house']} | आयु: {v['age']} {v['gender'][0]}", font_size='11sp', color=(0.3,0.3,0.3,1), size_hint_x=0.5))
         self.add_widget(r2)
 
-        # Tags & Quick Action
         r3 = BoxLayout(size_hint_y=None, height=28, spacing=4)
         r3.add_widget(Label(text=f"[b]{v['tag']}[/b]", markup=True, font_size='11sp', color=TAG_COLORS.get(v['tag'], (0.5,0.5,0.5,1)), size_hint_x=0.35))
         
@@ -136,9 +133,8 @@ class VoterCard(BoxLayout):
         r3.add_widget(b_fam); r3.add_widget(b_edit); r3.add_widget(b_call)
         self.add_widget(r3)
 
-        # Main Actions
         r4 = BoxLayout(size_hint_y=None, height=36, spacing=6)
-        b_slip = Button(text="🖨️ पर्ची/QR", font_size='12sp', background_color=(0.1,0.4,0.8,1))
+        b_slip = Button(text="🖨️ पर्ची/PDF", font_size='12sp', background_color=(0.1,0.4,0.8,1))
         b_slip.bind(on_release=lambda x: action_cb('slip', v))
         v_txt = "वोट दिया ✓" if v['voted'] else "वोट बाकी"
         b_vote = Button(text=v_txt, font_size='12sp', background_color=(0.1,0.7,0.3,1) if v['voted'] else (0.6,0.6,0.6,1))
@@ -149,7 +145,7 @@ class VoterCard(BoxLayout):
     def upd(self, *args): pass
     def update_bg(self, *args): self.bg.pos, self.bg.size = self.pos, self.size
 
-# ================= 3. MAIN APP & SIDEBAR =================
+# ================= 3. MAIN APP & WORKSPACE =================
 
 class ElectionWarRoomApp(App):
     def build(self):
@@ -159,7 +155,6 @@ class ElectionWarRoomApp(App):
         
         self.root = BoxLayout(orientation='horizontal')
         
-        # --- Scrollable Sidebar ---
         self.sidebar_container = BoxLayout(size_hint_x=None, width=0)
         with self.sidebar_container.canvas.before:
             Color(0.08, 0.12, 0.22, 1)
@@ -174,7 +169,6 @@ class ElectionWarRoomApp(App):
         self.build_sidebar()
         self.root.add_widget(self.sidebar_container)
 
-        # --- Main UI ---
         self.main = BoxLayout(orientation='vertical', spacing=2)
         tb = BoxLayout(size_hint_y=None, height=55, padding=[6,4], spacing=8)
         with tb.canvas.before:
@@ -188,7 +182,6 @@ class ElectionWarRoomApp(App):
         tb.add_widget(b_menu); tb.add_widget(self.lbl_top)
         self.main.add_widget(tb)
 
-        # Dual Search & Filters
         s_box = BoxLayout(size_hint_y=None, height=44, padding=[6,2], spacing=4)
         self.t_search = TextInput(hint_text="नाम, मकान, फोन, EPIC...", multiline=False, font_size='13sp')
         self.t_search.bind(text=self.refresh)
@@ -227,7 +220,6 @@ class ElectionWarRoomApp(App):
 
     def build_sidebar(self):
         self.sidebar.add_widget(Label(text="[b]30+ प्रो फीचर्स[/b]", markup=True, font_size='18sp', size_hint_y=None, height=40))
-        
         btns = [
             ("📄 PDF से डेटा लोड करें", self.tool_pdf),
             ("📊 सघन मकान (High Density)", self.tool_density),
@@ -237,12 +229,10 @@ class ElectionWarRoomApp(App):
             ("📱 रिक्त मोबाइल हंटर", self.tool_missing_mob),
             ("🧮 EVM 17C मिलान डायरी", self.tool_evm),
             ("📓 घटना व टेंडर वोट डायरी", self.tool_incident),
-            ("🔄 अन्य फ़ोन का डेटा मर्ज करें", self.tool_merge),
             ("🖨️ एक्सेल/A-Z लिस्ट एक्सपोर्ट", self.tool_excel),
             ("🖼️ पर्ची के लिए पोस्टर सेट करें", self.tool_poster),
             ("📉 जाति/उपनाम सांख्यिकी", self.tool_surname)
         ]
-        
         for t, f in btns:
             b = Button(text=t, font_size='13sp', size_hint_y=None, height=45, background_color=(0.15,0.4,0.6,1))
             b.bind(on_release=f)
@@ -252,8 +242,6 @@ class ElectionWarRoomApp(App):
         b_close.bind(on_release=self.toggle_sb)
         self.sidebar.add_widget(Label(size_hint_y=None, height=20))
         self.sidebar.add_widget(b_close)
-
-    # ================= 4. CORE LOGIC =================
 
     def refresh(self, *args):
         self.list_lyt.clear_widgets()
@@ -275,7 +263,7 @@ class ElectionWarRoomApp(App):
             q += " AND (name LIKE ? OR epic LIKE ? OR house LIKE ? OR mobile LIKE ?)"
             p.extend([f"%{st}%"]*4)
 
-        q += " ORDER BY CAST(house AS INTEGER), sr_no ASC LIMIT 150" # Sequential Street Navigator
+        q += " ORDER BY CAST(house AS INTEGER), sr_no ASC LIMIT 150"
         c.execute(q, p); rows = c.fetchall()
 
         c.execute("SELECT COUNT(*), SUM(voted) FROM voters")
@@ -338,14 +326,24 @@ class ElectionWarRoomApp(App):
     def exp_slip(self, fmt, v):
         path = os.path.join(self.exp_dir, f"Slip_{v['epic']}.png")
         self.slip_lyt.export_to_png(path)
+        
         def fin(dt):
             if fmt == 'pdf':
                 pdf_p = path.replace('.png', '.pdf')
-                PILImage.open(path).convert('RGB').save(pdf_p)
-                os.remove(path)
-                self.msg("सफल", f"PDF सेव हुई:\n{pdf_p}")
-            else: self.msg("सफल", f"इमेज सेव हुई:\n{path}")
+                try:
+                    pdf = FPDF(unit="pt", format=[400, 600])
+                    pdf.add_page()
+                    pdf.image(path, x=0, y=0, w=400)
+                    pdf.output(pdf_p)
+                    if os.path.exists(path):
+                        os.remove(path)
+                    self.msg("सफल", f"PDF सेव हुई:\n{pdf_p}")
+                except Exception as e:
+                    self.msg("त्रुटि", f"PDF नहीं बन सकी: {e}")
+            else:
+                self.msg("सफल", f"इमेज सेव हुई:\n{path}")
             self.p_slip.dismiss()
+            
         Clock.schedule_once(fin, 0.8)
 
     # ================= 5. PRO TOOLS =================
@@ -422,19 +420,17 @@ class ElectionWarRoomApp(App):
             conn.commit(); conn.close(); p.dismiss(); self.msg("सफल", "घटना रिकॉर्ड हो गई।")
         btn.bind(on_release=sv); p.open()
 
-    def tool_merge(self, *args):
-        self.toggle_sb()
-        self.msg("डेटाबेस मर्ज", "इस फीचर के ज़रिए आप दूसरे एजेंट के फोन से .db फाइल लेकर यहाँ Import कर सकते हैं।")
-
     def tool_excel(self, *args):
         self.toggle_sb()
         fp = os.path.join(self.exp_dir, f"Voters_A_to_Z_{int(time.time())}.xlsx")
         conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT part, sr_no, epic, name, rel_name, house, mobile, tag FROM voters ORDER BY name ASC", conn)
+        c = conn.cursor()
+        c.execute("SELECT part, sr_no, epic, name, rel_name, house, mobile, tag FROM voters ORDER BY name ASC")
+        rows = c.fetchall()
         conn.close()
         wb = Workbook(); ws = wb.active
         ws.append(['भाग', 'क्रम', 'EPIC', 'नाम', 'संबंधी', 'मकान', 'मोबाइल', 'टैग'])
-        for r in df.values.tolist(): ws.append(r)
+        for r in rows: ws.append(list(r))
         wb.save(fp)
         self.msg("एक्सेल एक्सपोर्ट", f"A to Z सूची सेव हो गई:\n{fp}")
 
