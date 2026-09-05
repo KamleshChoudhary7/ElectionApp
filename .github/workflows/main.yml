@@ -23,11 +23,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential git openjdk-17-jdk ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev libssl-dev libffi-dev autoconf libtool pkg-config
           pip install --upgrade pip
-          pip install buildozer cython==0.29.33 virtualenv
+          pip install buildozer "cython<3.0.0" virtualenv
 
-      - name: Build APK with Buildozer (Auto-Retry on Network Hiccup)
+      - name: Build APK with Buildozer
         run: |
-          yes | buildozer -v android debug || yes | buildozer -v android debug
+          # GitHub के पुराने NDK पाथ को हटाकर Buildozer के NDK को प्राथमिकता दें
+          unset ANDROID_NDK_HOME
+          unset ANDROID_NDK_ROOT
+          yes | buildozer android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
