@@ -1,7 +1,7 @@
 [app]
-title = ElectionWarRoom
-package.name = electionwarroom
-package.domain = org.bhilwara.ward12
+title = WarRoomPro
+package.name = warroompro
+package.domain = org.election.ward12
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,db,xlsx,pdf,ttf
 version = 4.0.0
@@ -12,6 +12,6 @@ android.permissions = WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERN
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = arm64-v8a
 android.allow_backup = True
 p4a.branch = master
