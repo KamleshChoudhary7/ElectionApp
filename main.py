@@ -8,7 +8,7 @@ import unicodedata
 from datetime import datetime
 from pypdf import PdfReader
 from openpyxl import Workbook
-from fpdf import FPDF
+from PIL import Image as PILImage
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -29,9 +29,28 @@ from kivy.clock import Clock
 if platform not in ('android', 'ios'):
     Window.size = (420, 780)
 
-DB_PATH = "voters_warroom.db"
+# --- ANDROID SAFE PATH GENERATOR ---
+def get_db_path():
+    if platform == 'android':
+        return os.path.join(App.get_running_app().user_data_dir, "voters_warroom.db")
+    return "voters_warroom.db"
 
-# ================= 1. OFFLINE DATA ENGINE & SQLITE =================
+def get_export_dir():
+    if platform == 'android':
+        try:
+            from android.storage import primary_external_storage_path
+            export_path = os.path.join(primary_external_storage_path(), "Download")
+            if not os.path.exists(export_path):
+                os.makedirs(export_path)
+            return export_path
+        except Exception:
+            return App.get_running_app().user_data_dir
+    return os.getcwd()
+
+# ----------------- OFFLINE DATA ENGINE -----------------
+
+CHAR_MAP = {'क':'k','ख':'kh','ग':'g','घ':'gh','ङ':'n','च':'ch','छ':'chh','ज':'j','झ':'jh','ञ':'n','ट':'t','ठ':'th','ड':'d','ढ':'dh','ण':'n','त':'t','थ':'th','द':'d','ध':'dh','न':'n','प':'p','फ':'ph','ब':'b','भ':'bh','म':'m','य':'y','र':'r','ल':'l','व':'v','श':'sh','ष':'sh','स':'s','ह':'h','क्ष':'ksh','त्र':'tr','ज्ञ':'gy','ा':'a','ि':'i','ी':'ee','ु':'u','ू':'oo','ृ':'ri','े':'e','ै':'ai','ो':'o','ौ':'au','ं':'n','्':'','़':''}
+VOWEL_MAP = {'अ':'a','आ':'aa','इ':'i','ई':'ee','उ':'u','ऊ':'oo','ए':'e','ऐ':'ai','ओ':'o','औ':'au'}
 
 def clean_hindi(raw_text):
     if not raw_text: return ""
@@ -39,7 +58,7 @@ def clean_hindi(raw_text):
     return re.sub(r'\s+', ' ', t).strip()
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS voters (
         id INTEGER PRIMARY KEY AUTOINCREMENT, ward TEXT, part TEXT, sr_no INTEGER, epic TEXT, 
@@ -56,7 +75,7 @@ def init_db():
 
 def extract_pdf(pdf_path, part_no):
     init_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
     count = 0
     pat = re.compile(r'(\d+)\s+([A-Z0-9/]+)\s*\nनाम[ः:]\s*([^\n]+)\s*\n(पिता का नाम|पति का नाम|माता का नाम|अन्य का नाम)[ः:]\s*([^\n]+)\s*\nमकान संख्या[ः:]\s*([^\n]*)\s*\nआयु[ः:]\s*(\d+)\s+लिंग[ः:]\s*([^\n]+)')
@@ -82,7 +101,7 @@ def extract_pdf(pdf_path, part_no):
     conn.commit(); conn.close()
     return count
 
-# ================= 2. UI STYLES & CARDS =================
+# ----------------- UI STYLES & CARDS -----------------
 
 TAG_COLORS = {"सामान्य": (0.5,0.5,0.5,1), "पक्का समर्थक": (0.1,0.7,0.2,1), "विरोधी": (0.8,0.1,0.1,1), "संदेहास्पद": (0.9,0.5,0.1,1), "प्रवासी": (0.2,0.5,0.8,1), "VIP": (0.8,0.2,0.6,1)}
 
@@ -108,7 +127,7 @@ class VoterCard(BoxLayout):
             elif v['voted']: Color(0.88,0.98,0.88,1)
             else: Color(0.96,0.97,0.99,1)
             self.bg = RoundedRectangle(pos=self.pos, size=self.size, radius=[8])
-        self.bind(pos=self.upd, size=self.update_bg)
+        self.bind(pos=self.upd, size=self.upd)
 
         r1 = BoxLayout(size_hint_y=None, height=28)
         dm = "[color=ff0000](विलोपित)[/color] " if v['is_deleted'] else ""
@@ -134,7 +153,7 @@ class VoterCard(BoxLayout):
         self.add_widget(r3)
 
         r4 = BoxLayout(size_hint_y=None, height=36, spacing=6)
-        b_slip = Button(text="🖨️ पर्ची/PDF", font_size='12sp', background_color=(0.1,0.4,0.8,1))
+        b_slip = Button(text="🖨️ पर्ची/QR", font_size='12sp', background_color=(0.1,0.4,0.8,1))
         b_slip.bind(on_release=lambda x: action_cb('slip', v))
         v_txt = "वोट दिया ✓" if v['voted'] else "वोट बाकी"
         b_vote = Button(text=v_txt, font_size='12sp', background_color=(0.1,0.7,0.3,1) if v['voted'] else (0.6,0.6,0.6,1))
@@ -142,19 +161,25 @@ class VoterCard(BoxLayout):
         r4.add_widget(b_slip); r4.add_widget(b_vote)
         self.add_widget(r4)
 
-    def upd(self, *args): pass
-    def update_bg(self, *args): self.bg.pos, self.bg.size = self.pos, self.size
+    def upd(self, *args): self.bg.pos, self.bg.size = self.pos, self.size
 
-# ================= 3. MAIN APP & WORKSPACE =================
+# ----------------- MAIN APP & SIDEBAR -----------------
 
 class ElectionWarRoomApp(App):
     def build(self):
+        # Android Storage Permissions Boot Request
+        if platform == 'android':
+            try:
+                from android.permissions import request_permissions, Permission
+                request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE])
+            except Exception as e:
+                print("Permission request failed:", e)
+
         init_db()
-        self.poster = "my_photo.png"
-        self.exp_dir = "/storage/emulated/0/Download" if platform == 'android' else os.getcwd()
+        self.poster = os.path.join(App.get_running_app().user_data_dir if platform=='android' else ".", "my_photo.png")
+        self.exp_dir = get_export_dir()
         
         self.root = BoxLayout(orientation='horizontal')
-        
         self.sidebar_container = BoxLayout(size_hint_x=None, width=0)
         with self.sidebar_container.canvas.before:
             Color(0.08, 0.12, 0.22, 1)
@@ -230,9 +255,9 @@ class ElectionWarRoomApp(App):
             ("🧮 EVM 17C मिलान डायरी", self.tool_evm),
             ("📓 घटना व टेंडर वोट डायरी", self.tool_incident),
             ("🖨️ एक्सेल/A-Z लिस्ट एक्सपोर्ट", self.tool_excel),
-            ("🖼️ पर्ची के लिए पोस्टर सेट करें", self.tool_poster),
-            ("📉 जाति/उपनाम सांख्यिकी", self.tool_surname)
+            ("🖼️ पर्ची के लिए पोस्टर सेट करें", self.tool_poster)
         ]
+        
         for t, f in btns:
             b = Button(text=t, font_size='13sp', size_hint_y=None, height=45, background_color=(0.15,0.4,0.6,1))
             b.bind(on_release=f)
@@ -245,7 +270,7 @@ class ElectionWarRoomApp(App):
 
     def refresh(self, *args):
         self.list_lyt.clear_widgets()
-        conn = sqlite3.connect(DB_PATH); conn.row_factory = sqlite3.Row; c = conn.cursor()
+        conn = sqlite3.connect(get_db_path()); conn.row_factory = sqlite3.Row; c = conn.cursor()
         q, p = "SELECT * FROM voters WHERE 1=1", []
 
         if self.s_part.text != "भाग": q += " AND part = ?"; p.append(self.s_part.text)
@@ -275,7 +300,7 @@ class ElectionWarRoomApp(App):
 
     def card_action(self, action, v):
         if action == 'vote':
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(get_db_path())
             conn.execute("UPDATE voters SET voted=? WHERE id=?", (0 if v['voted'] else 1, v['id']))
             conn.commit(); conn.close(); self.refresh()
         elif action == 'fam':
@@ -292,11 +317,10 @@ class ElectionWarRoomApp(App):
         
         for w in [i_mob, s_tag, i_note]: b.add_widget(w)
         btn = Button(text="सेव करें", size_hint_y=None, height=45, background_color=(0.1,0.7,0.3,1))
-        b.add_widget(btn)
-        p = Popup(title="प्रोफाइल व टैग", content=b, size_hint=(0.85, 0.65))
+        b.add_widget(btn); p = Popup(title="प्रोफाइल व टैग", content=b, size_hint=(0.85, 0.65))
         
         def save(_):
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(get_db_path())
             conn.execute("UPDATE voters SET mobile=?, tag=?, notes=? WHERE id=?", (i_mob.text, s_tag.text, i_note.text, v['id']))
             conn.commit(); conn.close(); p.dismiss(); self.refresh()
         btn.bind(on_release=save); p.open()
@@ -326,28 +350,20 @@ class ElectionWarRoomApp(App):
     def exp_slip(self, fmt, v):
         path = os.path.join(self.exp_dir, f"Slip_{v['epic']}.png")
         self.slip_lyt.export_to_png(path)
-        
         def fin(dt):
             if fmt == 'pdf':
                 pdf_p = path.replace('.png', '.pdf')
                 try:
-                    pdf = FPDF(unit="pt", format=[400, 600])
-                    pdf.add_page()
-                    pdf.image(path, x=0, y=0, w=400)
-                    pdf.output(pdf_p)
-                    if os.path.exists(path):
-                        os.remove(path)
+                    PILImage.open(path).convert('RGB').save(pdf_p)
+                    os.remove(path)
                     self.msg("सफल", f"PDF सेव हुई:\n{pdf_p}")
                 except Exception as e:
-                    self.msg("त्रुटि", f"PDF नहीं बन सकी: {e}")
-            else:
-                self.msg("सफल", f"इमेज सेव हुई:\n{path}")
+                    self.msg("त्रुटि", str(e))
+            else: self.msg("सफल", f"इमेज सेव हुई:\n{path}")
             self.p_slip.dismiss()
-            
         Clock.schedule_once(fin, 0.8)
 
-    # ================= 5. PRO TOOLS =================
-
+    # ----------------- PRO TOOLS -----------------
     def tool_pdf(self, *args):
         self.toggle_sb(); b = BoxLayout(orientation='vertical', spacing=8, padding=10)
         sp = Spinner(text="1", values=("1","2","3","4"), size_hint_y=None, height=40)
@@ -360,29 +376,26 @@ class ElectionWarRoomApp(App):
             if not fc.selection: return
             lbl.text = "प्रोसेसिंग..."
             def w():
-                c = extract_pdf(fc.selection[0], sp.text)
+                c = parse_pdf_data(fc.selection[0], sp.text)
                 lbl.text = f"सफल! {c} वोटर लोड हुए।"
                 self.refresh()
             threading.Thread(target=w).start()
         btn.bind(on_release=run); p.open()
 
     def tool_density(self, *args):
-        self.toggle_sb()
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        self.toggle_sb(); conn = sqlite3.connect(get_db_path()); c = conn.cursor()
         c.execute("SELECT house, COUNT(*) as c FROM voters GROUP BY house ORDER BY c DESC LIMIT 20")
         d = c.fetchall(); conn.close()
         self.msg("सघन मकान (टॉप 20)", "\n".join([f"मकान नं. {x[0]} ➔ {x[1]} वोट" for x in d]))
 
     def tool_dupe(self, *args):
-        self.toggle_sb()
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        self.toggle_sb(); conn = sqlite3.connect(get_db_path()); c = conn.cursor()
         c.execute("SELECT name, rel_name, COUNT(*) as c FROM voters GROUP BY name, rel_name HAVING c>1")
         d = c.fetchall(); conn.close()
         self.msg("क्रॉस-पार्ट डुप्लीकेट", "\n".join([f"• {x[0]} ({x[1]}) - {x[2]} बार" for x in d]) if d else "कोई डुप्लीकेट नहीं।")
 
     def tool_margin(self, *args):
-        self.toggle_sb()
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
+        self.toggle_sb(); conn = sqlite3.connect(get_db_path()); c = conn.cursor()
         c.execute("SELECT COUNT(*), SUM(voted) FROM voters")
         t, v = c.fetchone(); v = v or 0; tgt = int(t * 0.55)
         self.msg("जीत का लक्ष्य (55%)", f"कुल वोट: {t}\nलक्ष्य: {tgt}\nपड़े वोट: {v}\nदूरी: {tgt-v} वोट और चाहिए।")
@@ -403,7 +416,7 @@ class ElectionWarRoomApp(App):
         btn = Button(text="सेव डायरी", size_hint_y=None, height=45, background_color=(0.1,0.6,0.3,1))
         b.add_widget(btn); p = Popup(title="EVM 17C लॉगर", content=b, size_hint=(0.85,0.6))
         def sv(_):
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(get_db_path())
             conn.execute("INSERT INTO evm_diary (cu,bu,vvpat,mock_votes) VALUES (?,?,?,?)", (cu.text, bu.text, vpt.text, mk.text))
             conn.commit(); conn.close(); p.dismiss(); self.msg("सफल", "EVM डिटेल्स सेव हो गईं।")
         btn.bind(on_release=sv); p.open()
@@ -415,24 +428,19 @@ class ElectionWarRoomApp(App):
         btn = Button(text="लॉग दर्ज करें", size_hint_y=None, height=45, background_color=(0.8,0.2,0.2,1))
         b.add_widget(btn); p = Popup(title="घटना डायरी", content=b, size_hint=(0.85,0.4))
         def sv(_):
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(get_db_path())
             conn.execute("INSERT INTO incidents (time,detail) VALUES (?,?)", (str(datetime.now()), dtl.text))
             conn.commit(); conn.close(); p.dismiss(); self.msg("सफल", "घटना रिकॉर्ड हो गई।")
         btn.bind(on_release=sv); p.open()
 
     def tool_excel(self, *args):
-        self.toggle_sb()
-        fp = os.path.join(self.exp_dir, f"Voters_A_to_Z_{int(time.time())}.xlsx")
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("SELECT part, sr_no, epic, name, rel_name, house, mobile, tag FROM voters ORDER BY name ASC")
-        rows = c.fetchall()
-        conn.close()
-        wb = Workbook(); ws = wb.active
+        self.toggle_sb(); fp = os.path.join(self.exp_dir, f"Voters_A_to_Z_{int(time.time())}.xlsx")
+        conn = sqlite3.connect(get_db_path())
+        df = pd.read_sql_query("SELECT part, sr_no, epic, name, rel_name, house, mobile, tag FROM voters ORDER BY name ASC", conn)
+        conn.close(); wb = Workbook(); ws = wb.active
         ws.append(['भाग', 'क्रम', 'EPIC', 'नाम', 'संबंधी', 'मकान', 'मोबाइल', 'टैग'])
-        for r in rows: ws.append(list(r))
-        wb.save(fp)
-        self.msg("एक्सेल एक्सपोर्ट", f"A to Z सूची सेव हो गई:\n{fp}")
+        for r in df.values.tolist(): ws.append(r)
+        wb.save(fp); self.msg("एक्सेल एक्सपोर्ट", f"A to Z सूची सेव हो गई:\n{fp}")
 
     def tool_poster(self, *args):
         self.toggle_sb(); b = BoxLayout(orientation='vertical', padding=10)
@@ -442,25 +450,9 @@ class ElectionWarRoomApp(App):
         b.add_widget(btn); p = Popup(title="पोस्टर चुनें", content=b, size_hint=(0.9,0.8))
         def st(_):
             if fc.selection:
-                shutil.copy(fc.selection[0], "my_photo.png")
-                self.poster = "my_photo.png"
+                shutil.copy(fc.selection[0], self.poster)
                 p.dismiss(); self.msg("सफल", "पर्ची के लिए आपका पोस्टर सेट हो गया है।")
         btn.bind(on_release=st); p.open()
-
-    def tool_surname(self, *args):
-        self.toggle_sb()
-        conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-        c.execute("SELECT name FROM voters")
-        surnames = {}
-        for row in c.fetchall():
-            parts = row[0].split()
-            if len(parts)>1:
-                sn = parts[-1]
-                surnames[sn] = surnames.get(sn, 0) + 1
-        conn.close()
-        sorted_sn = sorted(surnames.items(), key=lambda x:x[1], reverse=True)[:15]
-        txt = "\n".join([f"• {k}: {v} वोटर" for k, v in sorted_sn])
-        self.msg("उपनाम / जातिगत सांख्यिकी (Top 15)", txt)
 
     def msg(self, title, text):
         b = BoxLayout(orientation='vertical', padding=10, spacing=10)
