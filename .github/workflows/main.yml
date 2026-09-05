@@ -1,5 +1,4 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main ]
@@ -7,6 +6,7 @@ on:
 
 jobs:
   build:
+    # Error "Node.js 20 is deprecated" व क्रैश को रोकने के लिए ubuntu-22.04 का उपयोग
     runs-on: ubuntu-22.04
 
     steps:
@@ -18,28 +18,19 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git openjdk-17-jdk ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev libjpeg-dev zlib1g-dev libgeos-dev
+          sudo apt-get install -y build-essential git openjdk-17-jdk ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev libssl-dev libffi-dev autoconf libtool pkg-config
           pip install --upgrade pip
-          pip install buildozer "cython<3.0.0" virtualenv
+          pip install buildozer cython==0.29.33 virtualenv
 
       - name: Build APK with Buildozer
         run: |
-          # GitHub के पुराने NDK पाथ को हटाकर Buildozer के NDK को प्राथमिकता दें
-          unset ANDROID_NDK_HOME
-          unset ANDROID_NDK_ROOT
-          yes | buildozer android debug
+          yes | buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: WarRoom-APK
+          name: Election-App-APK
           path: bin/*.apk
